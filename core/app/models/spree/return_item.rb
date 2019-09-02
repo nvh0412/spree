@@ -5,6 +5,14 @@ module Spree
     class_attribute :return_eligibility_validator
     self.return_eligibility_validator = ReturnItem::EligibilityValidator::Default
 
+    def return_quantity=(value)
+      @_return_quantity = value.to_i
+    end
+
+    def return_quantity
+      @_return_quantity.nil? ? inventory_unit.quantity : @_return_quantity
+    end
+
     class_attribute :exchange_variant_engine
     self.exchange_variant_engine = ReturnItem::ExchangeVariantEligibility::SameProduct
 
@@ -17,8 +25,10 @@ module Spree
       belongs_to :customer_return
       belongs_to :reimbursement
     end
+    has_many :exchange_inventory_units, class_name: 'Spree::InventoryUnit',
+                                        foreign_key: :original_return_item_id,
+                                        inverse_of: :original_return_item
     belongs_to :exchange_variant, class_name: 'Spree::Variant'
-    belongs_to :exchange_inventory_unit, class_name: 'Spree::InventoryUnit', inverse_of: :original_return_item
     belongs_to :preferred_reimbursement_type, class_name: 'Spree::ReimbursementType'
     belongs_to :override_reimbursement_type, class_name: 'Spree::ReimbursementType'
 
@@ -27,6 +37,8 @@ module Spree
     validate :validate_acceptance_status_for_reimbursement
     validates :inventory_unit, presence: true
     validate :validate_no_other_completed_return_items, on: :create
+    validates :return_quantity, numericality: { greater_than_or_equal_to: 1 }
+    validate :sufficient_quantity_for_return
 
     after_create :cancel_others, unless: :cancelled?
 
@@ -42,8 +54,8 @@ module Spree
     scope :reimbursed, -> { where.not(reimbursement_id: nil) }
     scope :not_reimbursed, -> { where(reimbursement_id: nil) }
     scope :exchange_requested, -> { where.not(exchange_variant: nil) }
-    scope :exchange_processed, -> { where.not(exchange_inventory_unit: nil) }
-    scope :exchange_required, -> { exchange_requested.where(exchange_inventory_unit: nil) }
+    scope :exchange_processed, -> { joins(:exchange_inventory_units).distinct }
+    scope :exchange_required, -> { eager_load(:exchange_inventory_units).where(spree_inventory_units: { original_return_item_id: nil }).distinct }
     scope :resellable, -> { where resellable: true }
 
     serialize :acceptance_status_errors
@@ -52,7 +64,9 @@ module Spree
     delegate :variant, to: :inventory_unit
     delegate :shipment, to: :inventory_unit
 
+    before_create :extract_inventory_unit, unless: -> { inventory_unit.quantity == return_quantity }
     before_create :set_default_pre_tax_amount, unless: :pre_tax_amount_changed?
+
     before_save :set_exchange_pre_tax_amount
 
     state_machine :reception_status, initial: :awaiting do
@@ -115,7 +129,7 @@ module Spree
     end
 
     def exchange_processed?
-      exchange_inventory_unit.present?
+      exchange_inventory_units.present?
     end
 
     def exchange_required?
@@ -130,49 +144,52 @@ module Spree
       exchange_variant_engine.eligible_variants(variant)
     end
 
-    def build_exchange_inventory_unit
+    def build_default_exchange_inventory_unit
       # The inventory unit needs to have the new variant
       # but it also needs to know the original line item
       # for pricing information for if the inventory unit is
       # ever returned. This means that the inventory unit's line_item
       # will have a different variant than the inventory unit itself
-      super(variant: exchange_variant, line_item: inventory_unit.line_item, order: inventory_unit.order) if exchange_required?
+      return unless exchange_required?
+
+      exchange_inventory_units.build(variant: exchange_variant, line_item: inventory_unit.line_item,
+                                     order: inventory_unit.order, quantity: return_quantity)
     end
 
-    def exchange_shipment
-      exchange_inventory_unit.try(:shipment)
+    def exchange_shipments
+      exchange_inventory_units.map(&:shipment).uniq
     end
 
     def set_default_pre_tax_amount
       self.pre_tax_amount = refund_amount_calculator.new.compute(self)
     end
 
+    def currency
+      return_authorization.try(:currency) || Spree::Config[:currency]
+    end
+
     private
 
     def persist_acceptance_status_errors
-      self.update_attributes(acceptance_status_errors: validator.errors)
+      update(acceptance_status_errors: validator.errors)
     end
 
     def stock_item
       return unless customer_return
 
-      Spree::StockItem.find_by({
-        variant_id: inventory_unit.variant_id,
-        stock_location_id: customer_return.stock_location_id,
-      })
-    end
-
-    def currency
-      return_authorization.try(:currency) || Spree::Config[:currency]
+      Spree::StockItem.find_by(variant_id: inventory_unit.variant_id,
+                               stock_location_id: customer_return.stock_location_id)
     end
 
     def process_inventory_unit!
       inventory_unit.return!
-      Spree::StockMovement.create!(
-        stock_item_id: stock_item.id,
-        quantity: 1,
-        originator: return_authorization
-      ) if should_restock?
+      if should_restock?
+        Spree::StockMovement.create!(
+          stock_item_id: stock_item.id,
+          quantity: inventory_unit.quantity,
+          originator: return_authorization
+        )
+      end
     end
 
     # This logic is also present in the customer return. The reason for the
@@ -191,6 +208,7 @@ module Spree
 
     def eligible_exchange_variant
       return unless exchange_variant && exchange_variant_id_changed?
+
       unless eligible_exchange_variants.include?(exchange_variant)
         errors.add(:base, Spree.t(:invalid_exchange_variant))
       end
@@ -206,21 +224,28 @@ module Spree
       end
     end
 
+    def sufficient_quantity_for_return
+      # Only perform the check if everything is good so far
+      return unless errors.empty? && return_quantity > inventory_unit.quantity
+
+      errors.add(:return_quantity, Spree.t(:cannot_return_more_than_bought_quantity))
+    end
+
+    def extract_inventory_unit
+      self.inventory_unit = inventory_unit.split_inventory!(return_quantity)
+    end
+
     def set_exchange_pre_tax_amount
       self.pre_tax_amount = 0.0.to_d if exchange_requested?
     end
 
     def validate_no_other_completed_return_items
-      other_return_item = Spree::ReturnItem.where({
-        inventory_unit_id: inventory_unit_id,
-        reception_status: COMPLETED_RECEPTION_STATUSES,
-      }).first
+      other_return_item = Spree::ReturnItem.where(inventory_unit_id: inventory_unit_id,
+                                                  reception_status: COMPLETED_RECEPTION_STATUSES).first
 
       if other_return_item
-        errors.add(:inventory_unit, :other_completed_return_item_exists, {
-          inventory_unit_id: inventory_unit_id,
-          return_item_id: other_return_item.id,
-        })
+        errors.add(:inventory_unit, :other_completed_return_item_exists,           inventory_unit_id: inventory_unit_id,
+                                                                                   return_item_id: other_return_item.id)
       end
     end
 

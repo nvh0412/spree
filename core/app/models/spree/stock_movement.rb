@@ -15,8 +15,7 @@ module Spree
       validates :quantity, numericality: {
         greater_than_or_equal_to: QUANTITY_LIMITS[:min],
         less_than_or_equal_to: QUANTITY_LIMITS[:max],
-        only_integer: true,
-        allow_nil: true
+        only_integer: true
       }
     end
 
@@ -31,10 +30,9 @@ module Spree
     private
 
     def update_stock_item_quantity
-      return unless self.stock_item.should_track_inventory?
+      return unless stock_item.should_track_inventory?
+
       stock_item.adjust_count_on_hand quantity
     end
-
   end
 end
-

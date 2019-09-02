@@ -10,20 +10,25 @@ module Spree
     def description
       @reimbursement_objects.map do |reimbursement_object|
         "#{reimbursement_object.variant.options_text} => #{reimbursement_object.exchange_variant.options_text}"
-      end.join(" | ")
+      end.join(' | ')
     end
 
     def display_amount
-      Spree::Money.new @reimbursement_objects.map(&:total).sum
+      Spree::Money.new @reimbursement_objects.sum(&:total)
     end
 
     def perform!
-      shipments = Spree::Stock::Coordinator.new(@order, @reimbursement_objects.map(&:build_exchange_inventory_unit)).shipments
-      if shipments.flat_map(&:inventory_units).size != @reimbursement_objects.size
-        raise UnableToCreateShipments.new("Could not generate shipments for all items. Out of stock?")
+      new_exchange_inventory_units = @reimbursement_objects.map(&:build_default_exchange_inventory_unit)
+      shipments = Spree::Stock::Coordinator.new(@order, new_exchange_inventory_units).shipments
+      shipments_units = shipments.flat_map(&:inventory_units)
+
+      if shipments_units.sum(&:quantity) != new_exchange_inventory_units.sum(&:quantity)
+        raise UnableToCreateShipments, 'Could not generate shipments for all items. Out of stock?'
       end
+
       @order.shipments += shipments
       @order.save!
+
       shipments.each do |shipment|
         shipment.update!(@order)
         shipment.finalize!
@@ -35,12 +40,11 @@ module Spree
     end
 
     def self.param_key
-      "spree_exchange"
+      'spree_exchange'
     end
 
     def self.model_name
       Spree::Exchange
     end
-
   end
 end

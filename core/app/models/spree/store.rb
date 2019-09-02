@@ -1,16 +1,16 @@
 module Spree
   class Store < Spree::Base
-    has_many :orders, class_name: "Spree::Order"
+    has_many :orders, class_name: 'Spree::Order'
 
     with_options presence: true do
-      validates :code, uniqueness: { allow_blank: true }
+      validates :code, uniqueness: { case_sensitive: false, allow_blank: true }
       validates :name, :url, :mail_from_address
     end
 
     before_save :ensure_default_exists_and_is_unique
     before_destroy :validate_not_default
 
-    scope :by_url, lambda { |url| where("url like ?", "%#{url}%") }
+    scope :by_url, ->(url) { where('url like ?', "%#{url}%") }
 
     after_commit :clear_cache
 
@@ -20,7 +20,7 @@ module Spree
     end
 
     def self.default
-      Rails.cache.fetch("default_store") do
+      Rails.cache.fetch('default_store') do
         where(default: true).first_or_initialize
       end
     end
@@ -43,7 +43,7 @@ module Spree
     end
 
     def clear_cache
-      Rails.cache.delete("default_store")
+      Rails.cache.delete('default_store')
     end
   end
 end

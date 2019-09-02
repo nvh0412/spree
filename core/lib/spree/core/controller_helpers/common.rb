@@ -22,7 +22,7 @@ module Spree
             title_string = @title.present? ? @title : accurate_title
             if title_string.present?
               if Spree::Config[:always_put_site_name_in_title]
-                [title_string, default_title].join(' - ')
+                [title_string, default_title].join(" #{Spree::Config[:title_site_name_separator]} ")
               else
                 title_string
               end
@@ -38,13 +38,6 @@ module Spree
           # this is a hook for subclasses to provide title
           def accurate_title
             current_store.seo_title
-          end
-
-          def render_404(exception = nil)
-            respond_to do |type|
-              type.html { render status: :not_found, file: "#{::Rails.root}/public/404", formats: [:html], layout: nil}
-              type.all  { head :not_found }
-            end
           end
 
           private
@@ -66,7 +59,6 @@ module Spree
           def get_layout
             layout ||= Spree::Config[:layout]
           end
-
         end
       end
     end

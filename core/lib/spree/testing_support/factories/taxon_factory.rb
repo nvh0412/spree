@@ -1,7 +1,7 @@
-FactoryGirl.define do
+FactoryBot.define do
   factory :taxon, class: Spree::Taxon do
-    name 'Ruby on Rails'
-    taxonomy
-    parent_id nil
+    sequence(:name) { |n| "taxon_#{n}" }
+    association(:taxonomy, strategy: :create)
+    parent_id { taxonomy.root.id }
   end
 end

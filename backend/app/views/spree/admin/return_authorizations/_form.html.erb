@@ -12,6 +12,8 @@
         <th><%= Spree.t(:product) %></th>
         <th><%= Spree.t(:status) %></th>
         <th><%= Spree.t(:charged) %></th>
+        <th><%= Spree.t(:purchased_quantity) %></th>
+        <th><%= Spree.t(:return_quantity) %></th>
         <th><%= Spree.t(:pre_tax_refund_amount) %></th>
         <th><%= Spree.t(:reimbursement_type) %></th>
         <th><%= Spree.t(:exchange_for) %></th>
@@ -34,8 +36,18 @@
             <div class="variant-options"><%= inventory_unit.variant.options_text %></div>
           </td>
           <td><%= inventory_unit.state.humanize %></td>
-          <td>
+          <td class="charged-amount" data-charged-amount="<%= return_item.pre_tax_amount %>">
             <%= return_item.display_pre_tax_amount %>
+          </td>
+          <td class="purchased-quantity">
+            <%= inventory_unit.quantity %>
+          </td>
+          <td>
+            <% if editable %>
+              <%= item_fields.number_field :return_quantity, { class: 'refund-quantity-input form-control', min: 0, max: return_item.return_quantity } %>
+            <% else %>
+              <%= return_item.return_quantity %>
+            <% end %>
           </td>
           <td>
             <% if editable %>
@@ -68,13 +80,13 @@
   <% end %>
 
   <%= f.field_container :stock_location, class: ['form-group'] do %>
-    <%= f.label :stock_location, Spree.t(:stock_location) %>
+    <%= f.label :stock_location, Spree.t(:stock_location) %> <span class="required">*</span>
     <%= f.select :stock_location_id, Spree::StockLocation.order_default.active.to_a.collect{|l|[l.name, l.id]}, {include_blank: true}, {class: 'select2', "data-placeholder" => Spree.t(:select_a_stock_location)} %>
-    <%= f.error_message_on :stock_location_id %>
+    <%= f.error_message_on :stock_location %>
   <% end %>
 
   <%= f.field_container :reason, class: ['form-group'] do %>
-    <%= f.label :reason, Spree.t(:reason) %>
+    <%= f.label :reason, Spree.t(:reason) %> <span class="required">*</span>
     <%= f.select :return_authorization_reason_id, @reasons.collect{|r|[r.name, r.id]}, {include_blank: true}, {class: 'select2', "data-placeholder" => Spree.t(:select_a_return_authorization_reason)} %>
     <%= f.error_message_on :reason %>
   <% end %>

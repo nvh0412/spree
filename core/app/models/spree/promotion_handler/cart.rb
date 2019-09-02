@@ -16,14 +16,17 @@ module Spree
       attr_reader :line_item, :order
       attr_accessor :error, :success
 
-      def initialize(order, line_item=nil)
-        @order, @line_item = order, line_item
+      def initialize(order, line_item = nil)
+        @order = order
+        @line_item = line_item
       end
 
       def activate
         promotions.each do |promotion|
           if (line_item && promotion.eligible?(line_item)) || promotion.eligible?(order)
             promotion.activate(line_item: line_item, order: order)
+          else
+            promotion.deactivate(line_item: line_item, order: order)
           end
         end
       end

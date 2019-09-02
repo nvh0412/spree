@@ -4,11 +4,12 @@ module Spree
     belongs_to :stock_location
 
     has_many :reimbursements, inverse_of: :customer_return
-    has_many :return_authorizations, through: :return_items
     has_many :return_items, inverse_of: :customer_return
+    has_many :return_authorizations, through: :return_items
 
     after_create :process_return!
 
+    validates :number, uniqueness: true
     validates :return_items, :stock_location, presence: true
     validate :must_have_return_authorization, on: :create
     validate :return_items_belong_to_same_order
@@ -33,9 +34,9 @@ module Spree
     # Temporarily tie a customer_return to one order
     def order
       return nil if return_items.blank?
+
       return_items.first.inventory_unit.order
     end
-
 
     def pre_tax_total
       return_items.sum(:pre_tax_amount)

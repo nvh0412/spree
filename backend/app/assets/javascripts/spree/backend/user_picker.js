@@ -1,8 +1,8 @@
 $.fn.userAutocomplete = function () {
-  'use strict';
+  'use strict'
 
-  function formatUser(user) {
-    return Select2.util.escapeMarkup(user.email);
+  function formatUser (user) {
+    return Select2.util.escapeMarkup(user.email)
   }
 
   this.select2({
@@ -13,29 +13,31 @@ $.fn.userAutocomplete = function () {
         ids: element.val(),
         token: Spree.api_key
       }, function (data) {
-        callback(data.users);
-      });
+        callback(data.users)
+      })
     },
     ajax: {
       url: Spree.routes.users_api,
       datatype: 'json',
       data: function (term) {
         return {
-          q: term,
+          q: {
+            email_cont: term
+          },
           token: Spree.api_key
-        };
+        }
       },
       results: function (data) {
         return {
           results: data.users
-        };
+        }
       }
     },
     formatResult: formatUser,
     formatSelection: formatUser
-  });
-};
+  })
+}
 
 $(document).ready(function () {
-  $('.user_picker').userAutocomplete();
-});
+  $('.user_picker').userAutocomplete()
+})

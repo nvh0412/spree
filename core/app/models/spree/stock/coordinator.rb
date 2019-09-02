@@ -1,17 +1,17 @@
 module Spree
   module Stock
     class Coordinator
-      attr_reader :order, :inventory_units, :allocated_inventory_units
+      attr_reader   :order, :inventory_units
+      attr_accessor :unallocated_inventory_units
 
       def initialize(order, inventory_units = nil)
         @order = order
         @inventory_units = inventory_units || InventoryUnitBuilder.new(order).units
-        @allocated_inventory_units = []
       end
 
       def shipments
         packages.map do |package|
-          package.to_shipment.tap { |s| s.address = order.ship_address }
+          package.to_shipment.tap { |s| s.address_id = order.ship_address_id }
         end
       end
 
@@ -21,21 +21,16 @@ module Spree
         packages = estimate_packages(packages)
       end
 
-      def build_packages(packages = Array.new)
+      def build_packages(packages = [])
         stock_locations_with_requested_variants.each do |stock_location|
-          packer = build_packer(stock_location, unallocated_inventory_units)
+          packer = build_packer(stock_location, inventory_units)
           packages += packer.packages
-          @allocated_inventory_units += packer.allocated_inventory_units
         end
 
         packages
       end
 
       private
-
-      def unallocated_inventory_units
-        inventory_units - allocated_inventory_units
-      end
 
       def stock_locations_with_requested_variants
         Spree::StockLocation.active.joins(:stock_items).
@@ -63,7 +58,7 @@ module Spree
         Packer.new(stock_location, inventory_units, splitters(stock_location))
       end
 
-      def splitters(stock_location)
+      def splitters(_stock_location)
         # extension point to return custom splitters for a location
         Rails.application.config.spree.stock_splitters
       end

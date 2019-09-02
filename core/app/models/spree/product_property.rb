@@ -14,9 +14,10 @@ module Spree
     default_scope { order(:position) }
 
     self.whitelisted_ransackable_attributes = ['value']
+    self.whitelisted_ransackable_associations = ['property']
 
     # virtual attributes for use with AJAX completion stuff
-    delegate :name, to: :property, prefix: true, allow_nil: true
+    delegate :name, :presentation, to: :property, prefix: true, allow_nil: true
 
     def property_name=(name)
       if name.present?

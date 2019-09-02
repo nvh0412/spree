@@ -1,6 +1,7 @@
 \#*
 **/*.db
 **/*.log
+**/*.byebug_history
 *~
 .#*
 .DS_Store
@@ -9,7 +10,7 @@
 .idea
 .loadpath
 .project
-.ruby-version
+.vscode
 bin/*
 public/dispatch.cgi
 public/dispatch.fcgi
@@ -42,10 +43,8 @@ public/google_base.xml
 public/template_google_base.xml
 coverage/*
 var
-TAGS
 nbproject
 ./vendor
-tags
 *.swp
 rerun.txt
 test_app
@@ -56,3 +55,14 @@ test_app
 .ruby-gemset
 vendor/bundle
 */vendor/bundle
+.ignore
+
+# new guides
+guides/output
+guides/logs
+guides/.cache
+guides/public
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.yarn-integrity

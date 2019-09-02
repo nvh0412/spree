@@ -1,11 +1,13 @@
 #main-part {
-  padding: 15px 35px 0;
-  &.sidebar-collapsed {
-    padding-left: 85px;
-  }
+  padding: $spacer ($spacer * 2) 0 ($spacer * 2);
+  margin-top: 50px;
+}
+
+.sidebar-minimized #main-part {
+  padding: $spacer ($spacer * 2) 0 ($spacer * 5);
 }
 
 #logo {
   width: auto;
-  height: 20px;
+  height: 40px;
 }

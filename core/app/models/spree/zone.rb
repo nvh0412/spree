@@ -1,25 +1,25 @@
 module Spree
   class Zone < Spree::Base
     with_options dependent: :destroy, inverse_of: :zone do
-      has_many :zone_members, class_name: "Spree::ZoneMember"
+      has_many :zone_members, class_name: 'Spree::ZoneMember'
       has_many :tax_rates
     end
     with_options through: :zone_members, source: :zoneable do
-      has_many :countries, source_type: "Spree::Country"
-      has_many :states, source_type: "Spree::State"
+      has_many :countries, source_type: 'Spree::Country'
+      has_many :states, source_type: 'Spree::State'
     end
 
     has_many :shipping_method_zones, class_name: 'Spree::ShippingMethodZone'
     has_many :shipping_methods, through: :shipping_method_zones, class_name: 'Spree::ShippingMethod'
 
-    validates :name, presence: true, uniqueness: { allow_blank: true }
+    validates :name, presence: true, uniqueness: { case_sensitive: false, allow_blank: true }
 
     scope :with_default_tax, -> { where(default_tax: true) }
 
     after_save :remove_defunct_members
-    after_save :remove_previous_default, if: [:default_tax?, :default_tax_changed?]
+    after_save :remove_previous_default, if: %i[default_tax? saved_change_to_default_tax?]
 
-    alias :members :zone_members
+    alias members zone_members
     accepts_nested_attributes_for :zone_members, allow_destroy: true, reject_if: proc { |a| a['zoneable_id'].blank? }
 
     self.whitelisted_ransackable_attributes = ['description']
@@ -32,7 +32,7 @@ module Spree
       if zone.country?
         # Match zones of the same kind with similar countries
         joins(countries: :zones).
-          where("zone_members_spree_countries_join.zone_id = ?", zone.id).
+          where('zone_members_spree_countries_join.zone_id = ?', zone.id).
           distinct
       else
         # Match zones of the same kind with similar states in AND match zones
@@ -52,15 +52,15 @@ module Spree
     # Returns nil in the case of no matches.
     def self.match(address)
       return unless address &&
-                    matches = includes(:zone_members).
-                              order('spree_zones.zone_members_count', 'spree_zones.created_at').
-                              where("(spree_zone_members.zoneable_type = 'Spree::Country' AND " +
-                                      "spree_zone_members.zoneable_id = ?) OR " +
-                                      "(spree_zone_members.zoneable_type = 'Spree::State' AND " +
-                                      "spree_zone_members.zoneable_id = ?)", address.country_id, address.state_id).
-                              references(:zones)
+        matches = includes(:zone_members).
+                    order('spree_zones.zone_members_count', 'spree_zones.created_at').
+                    where("(spree_zone_members.zoneable_type = 'Spree::Country' AND " \
+                          'spree_zone_members.zoneable_id = ?) OR ' \
+                          "(spree_zone_members.zoneable_type = 'Spree::State' AND " \
+                          'spree_zone_members.zoneable_id = ?)', address.country_id, address.state_id).
+                    references(:zones)
 
-      ['state', 'country'].each do |zone_kind|
+      %w[state country].each do |zone_kind|
         if match = matches.detect { |zone| zone_kind == zone.kind }
           return match
         end
@@ -74,7 +74,7 @@ module Spree
       else
         not_nil_scope = members.where.not(zoneable_type: nil)
         zone_type = not_nil_scope.order('created_at ASC').pluck(:zoneable_type).last
-        zone_type.demodulize.underscore if zone_type
+        zone_type&.demodulize&.underscore
       end
     end
 
@@ -168,9 +168,7 @@ module Spree
     private
 
     def remove_defunct_members
-      if zone_members.any?
-        zone_members.defunct_without_kind(kind).destroy_all
-      end
+      zone_members.defunct_without_kind(kind).destroy_all if zone_members.any?
     end
 
     def remove_previous_default

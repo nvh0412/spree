@@ -6,7 +6,7 @@ module Spree
 
     with_options inverse_of: :reimbursements do
       belongs_to :order
-      belongs_to :customer_return, touch: true
+      belongs_to :customer_return, touch: true, optional: true
     end
 
     with_options inverse_of: :reimbursement do
@@ -15,6 +15,7 @@ module Spree
       has_many :return_items
     end
 
+    validates :number, uniqueness: true
     validates :order, presence: true
     validate :validate_return_items_belong_to_same_order
 
@@ -41,7 +42,7 @@ module Spree
     #   Refund.total_amount_reimbursed_for(reimbursement)
     # See the `reimbursement_generator` property regarding the generation of custom reimbursements.
     class_attribute :reimbursement_models
-    self.reimbursement_models = [Refund]
+    self.reimbursement_models = [Refund, Credit]
 
     # The reimbursement_performer property should be set to an object that responds to the following methods:
     # - #perform
@@ -60,7 +61,6 @@ module Spree
     self.reimbursement_failure_hooks = []
 
     state_machine :reimbursement_status, initial: :pending do
-
       event :errored do
         transition to: :errored, from: :pending
       end
@@ -68,21 +68,18 @@ module Spree
       event :reimbursed do
         transition to: :reimbursed, from: [:pending, :errored]
       end
-
     end
 
     class << self
       def build_from_customer_return(customer_return)
         order = customer_return.order
-        order.reimbursements.build({
-          customer_return: customer_return,
-          return_items: customer_return.return_items.accepted.not_reimbursed,
-        })
+        order.reimbursements.build(customer_return: customer_return,
+                                   return_items: customer_return.return_items.accepted.not_reimbursed)
       end
     end
 
     def display_total
-      Spree::Money.new(total, { currency: order.currency })
+      Spree::Money.new(total, currency: order.currency)
     end
 
     def calculated_total
@@ -115,7 +112,7 @@ module Spree
       else
         errored!
         reimbursement_failure_hooks.each { |h| h.call self }
-        raise IncompleteReimbursementError, Spree.t("validation.unpaid_amount_not_zero", amount: unpaid_amount)
+        raise IncompleteReimbursementError, Spree.t('validation.unpaid_amount_not_zero', amount: unpaid_amount)
       end
     end
 

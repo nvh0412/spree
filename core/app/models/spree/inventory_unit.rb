@@ -1,16 +1,15 @@
 module Spree
   class InventoryUnit < Spree::Base
-
     with_options inverse_of: :inventory_units do
-      belongs_to :variant, class_name: "Spree::Variant"
-      belongs_to :order, class_name: "Spree::Order"
-      belongs_to :shipment, class_name: "Spree::Shipment", touch: true, optional: true
-      belongs_to :return_authorization, class_name: "Spree::ReturnAuthorization"
-      belongs_to :line_item, class_name: "Spree::LineItem"
+      belongs_to :variant, class_name: 'Spree::Variant'
+      belongs_to :order, class_name: 'Spree::Order'
+      belongs_to :shipment, class_name: 'Spree::Shipment', touch: true, optional: true
+      belongs_to :return_authorization, class_name: 'Spree::ReturnAuthorization'
+      belongs_to :line_item, class_name: 'Spree::LineItem'
     end
 
     has_many :return_items, inverse_of: :inventory_unit
-    has_one :original_return_item, class_name: "Spree::ReturnItem", foreign_key: :exchange_inventory_unit_id
+    belongs_to :original_return_item, class_name: 'Spree::ReturnItem'
 
     scope :backordered, -> { where state: 'backordered' }
     scope :on_hand, -> { where state: 'on_hand' }
@@ -18,12 +17,14 @@ module Spree
     scope :shipped, -> { where state: 'shipped' }
     scope :returned, -> { where state: 'returned' }
     scope :backordered_per_variant, ->(stock_item) do
-      includes(:shipment, :order)
-        .where.not(spree_shipments: { state: 'canceled' })
-        .where(variant_id: stock_item.variant_id)
-        .where.not(spree_orders: { completed_at: nil })
-        .backordered.order("spree_orders.completed_at ASC")
+      includes(:shipment, :order).
+        where.not(spree_shipments: { state: 'canceled' }).
+        where(variant_id: stock_item.variant_id).
+        where.not(spree_orders: { completed_at: nil }).
+        backordered.order('spree_orders.completed_at ASC')
     end
+
+    validates :quantity, numericality: { greater_than: 0 }
 
     # state machine (see http://github.com/pluginaweek/state_machine/tree/master for details)
     state_machine initial: :on_hand do
@@ -59,7 +60,28 @@ module Spree
 
     def find_stock_item
       Spree::StockItem.where(stock_location_id: shipment.stock_location_id,
-        variant_id: variant_id).first
+                             variant_id: variant_id).first
+    end
+
+    def self.split(original_inventory_unit, extract_quantity)
+      split = original_inventory_unit.dup
+      split.quantity = extract_quantity
+      original_inventory_unit.quantity -= extract_quantity
+      split
+    end
+
+    # This will fail if extract >= available_quantity
+    def split_inventory!(extract_quantity)
+      split = self.class.split(self, extract_quantity)
+      transaction do
+        split.save!
+        save!
+      end
+      split
+    end
+
+    def extract_singular_inventory!
+      split_inventory!(1)
     end
 
     # Remove variant default_scope `deleted_at: nil`
@@ -79,23 +101,37 @@ module Spree
       line_item.included_tax_total * percentage_of_line_item
     end
 
+    def required_quantity
+      return @required_quantity unless @required_quantity.nil?
+
+      @required_quantity = if exchanged_unit?
+                             original_return_item.return_quantity
+                           else
+                             line_item.quantity
+                           end
+    end
+
+    def exchanged_unit?
+      original_return_item_id?
+    end
+
     private
 
-      def allow_ship?
-        self.on_hand?
-      end
+    def allow_ship?
+      on_hand?
+    end
 
-      def fulfill_order
-        self.reload
-        order.fulfill!
-      end
+    def fulfill_order
+      reload
+      order.fulfill!
+    end
 
-      def percentage_of_line_item
-        1 / BigDecimal.new(line_item.quantity)
-      end
+    def percentage_of_line_item
+      quantity / BigDecimal(line_item.quantity)
+    end
 
-      def current_return_item
-        return_items.not_cancelled.first
-      end
+    def current_return_item
+      return_items.not_cancelled.first
+    end
   end
 end

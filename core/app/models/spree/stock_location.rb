@@ -4,10 +4,10 @@ module Spree
     has_many :stock_items, dependent: :delete_all, inverse_of: :stock_location
     has_many :stock_movements, through: :stock_items
 
-    belongs_to :state, class_name: 'Spree::State'
+    belongs_to :state, class_name: 'Spree::State', optional: true
     belongs_to :country, class_name: 'Spree::Country'
 
-    validates :name, presence: true
+    validates :name, presence: true, uniqueness: { allow_blank: true }
 
     scope :active, -> { where(active: true) }
     scope :order_default, -> { order(default: :desc, name: :asc) }
@@ -21,14 +21,14 @@ module Spree
 
     # Wrapper for creating a new stock item respecting the backorderable config
     def propagate_variant(variant)
-      self.stock_items.create!(variant: variant, backorderable: self.backorderable_default)
+      stock_items.create!(variant: variant, backorderable: backorderable_default)
     end
 
     # Return either an existing stock item or create a new one. Useful in
     # scenarios where the user might not know whether there is already a stock
     # item for a given variant
     def set_up_stock_item(variant)
-      self.stock_item(variant) || propagate_variant(variant)
+      stock_item(variant) || propagate_variant(variant)
     end
 
     # Returns an instance of StockItem for the variant id.
@@ -38,6 +38,10 @@ module Spree
     # @return [StockItem] Corresponding StockItem for the StockLocation's variant.
     def stock_item(variant_id)
       stock_items.where(variant_id: variant_id).order(:id).first
+    end
+
+    def stocks?(variant)
+      stock_items.exists?(variant: variant)
     end
 
     # Attempts to look up StockItem for the variant, and creates one if not found.
@@ -64,7 +68,7 @@ module Spree
       move(variant, quantity, originator)
     end
 
-    def restock_backordered(variant, quantity, originator = nil)
+    def restock_backordered(variant, quantity, _originator = nil)
       item = stock_item_or_create(variant)
       item.update_columns(
         count_on_hand: item.count_on_hand + quantity,
@@ -100,16 +104,17 @@ module Spree
     end
 
     private
-      def create_stock_items
-        Variant.includes(:product).find_each do |variant|
-          propagate_variant(variant)
-        end
-      end
 
-      def ensure_one_default
-        if self.default
-          StockLocation.where(default: true).where.not(id: self.id).update_all(default: false)
-        end
+    def create_stock_items
+      Variant.includes(:product).find_each do |variant|
+        propagate_variant(variant)
       end
+    end
+
+    def ensure_one_default
+      if default
+        StockLocation.where(default: true).where.not(id: id).update_all(default: false)
+      end
+    end
   end
 end

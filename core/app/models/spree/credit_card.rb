@@ -1,7 +1,19 @@
 module Spree
   class CreditCard < Spree::Base
+    include ActiveMerchant::Billing::CreditCardMethods
+
+    # to migrate safely from older Spree versions that din't provide safe deletion for CCs
+    # we need to ensure that we have a connection to the DB and that the `deleted_at` column exists
+    if !ENV['SPREE_DISABLE_DB_CONNECTION'] &&
+        connected? &&
+        table_exists? &&
+        connection.column_exists?(:spree_credit_cards, :deleted_at)
+      acts_as_paranoid
+    end
+
     belongs_to :payment_method
-    belongs_to :user, class_name: Spree.user_class, foreign_key: 'user_id'
+    belongs_to :user, class_name: Spree.user_class.to_s, foreign_key: 'user_id',
+                      optional: true
     has_many :payments, as: :source
 
     before_save :set_last_digits
@@ -15,7 +27,8 @@ module Spree
     attr_reader :number
     attr_accessor :encrypted_data,
                   :imported,
-                  :verification_value
+                  :verification_value,
+                  :manual_entry
 
     with_options if: :require_card_numbers?, on: :create do
       validates :month, :year, numericality: { only_integer: true }
@@ -50,49 +63,53 @@ module Spree
       maestro: /^(5[06-8]|6\d)\d{10,17}$/,
       forbrugsforeningen: /^600722\d{10}$/,
       laser: /^(6304|6706|6709|6771(?!89))\d{8}(\d{4}|\d{6,7})?$/
-    }
+    }.freeze
 
     def expiry=(expiry)
       return unless expiry.present?
 
       self[:month], self[:year] =
-      if expiry.match(/\d{2}\s?\/\s?\d{2,4}/) # will match mm/yy and mm / yyyy
-        expiry.delete(' ').split('/')
-      elsif match = expiry.match(/(\d{2})(\d{2,4})/) # will match mmyy and mmyyyy
-        [match[1], match[2]]
-      end
+        if expiry =~ /\d{2}\s?\/\s?\d{2,4}/ # will match mm/yy and mm / yyyy
+          expiry.delete(' ').split('/')
+        elsif match = expiry.match(/(\d{2})(\d{2,4})/) # will match mmyy and mmyyyy
+          [match[1], match[2]]
+        end
       if self[:year]
-        self[:year] = "20#{ self[:year] }" if self[:year] / 100 == 0
+        self[:year] = "20#{self[:year]}" if (self[:year] / 100).zero?
         self[:year] = self[:year].to_i
       end
       self[:month] = self[:month].to_i if self[:month]
     end
 
     def number=(num)
-      @number = num.gsub(/[^0-9]/, '') rescue nil
+      @number = begin
+                  num.gsub(/[^0-9]/, '')
+                rescue StandardError
+                  nil
+                end
     end
 
     # cc_type is set by jquery.payment, which helpfully provides different
     # types from Active Merchant. Converting them is necessary.
     def cc_type=(type)
       self[:cc_type] = case type
-      when 'mastercard', 'maestro' then 'master'
-      when 'amex' then 'american_express'
-      when 'dinersclub' then 'diners_club'
-      when '' then try_type_from_number
-      else type
-      end
+                       when 'mastercard', 'maestro' then 'master'
+                       when 'amex' then 'american_express'
+                       when 'dinersclub' then 'diners_club'
+                       when '' then try_type_from_number
+                       else type
+                       end
     end
 
     def set_last_digits
-      number.to_s.gsub!(/\s/,'')
-      verification_value.to_s.gsub!(/\s/,'')
+      number.to_s.gsub!(/\s/, '')
+      verification_value.to_s.gsub!(/\s/, '')
       self.last_digits ||= number.to_s.length <= 4 ? number : number.to_s.slice(-4..-1)
     end
 
     def try_type_from_number
       numbers = number.delete(' ') if number
-      CARD_TYPES.find{|type, pattern| return type.to_s if numbers =~ pattern}.to_s
+      CARD_TYPES.find { |type, pattern| return type.to_s if numbers =~ pattern }.to_s
     end
 
     def verification_value?
@@ -146,20 +163,20 @@ module Spree
         year: year,
         verification_value: verification_value,
         first_name: first_name,
-        last_name: last_name,
+        last_name: last_name
       )
     end
 
     private
 
     def require_card_numbers?
-      !self.encrypted_data.present? && !self.has_payment_profile?
+      !encrypted_data.present? && !has_payment_profile?
     end
 
     def ensure_one_default
-      if self.user_id && self.default
-        CreditCard.where(default: true, user_id: self.user_id).where.not(id: self.id)
-          .update_all(default: false)
+      if user_id && default
+        CreditCard.where(default: true, user_id: user_id).where.not(id: id).
+          update_all(default: false)
       end
     end
   end
