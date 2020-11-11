@@ -7,6 +7,11 @@ module Spree
           before_action :ensure_order
 
           def next
+            
+            
+            
+            
+
             spree_authorize! :update, spree_current_order, order_token
 
             result = next_service.call(order: spree_current_order)
@@ -31,6 +36,13 @@ module Spree
           end
 
           def update
+            
+            
+            
+            
+            
+            
+
             spree_authorize! :update, spree_current_order, order_token
 
             result = update_service.call(
